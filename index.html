@@ -171,13 +171,16 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
 .ads .src{font-size:11px;color:var(--muted);padding:5px 10px;background:var(--off);border-top:1px solid var(--line)}
 .ads .up{color:var(--bad)} .ads .dn{color:var(--ok)}
 .chip.live{background:var(--ok-soft);color:var(--ok)}
-.ro-note{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:8px 14px}.ro-note a{color:var(--fg);font-weight:600}.ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
 .gate{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:8px;max-width:420px;box-shadow:var(--shadow)}
 .gate label{font-size:13px;color:var(--muted)}
 .gate .grow{display:flex;gap:8px}
 .gate input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--fg)}
 .gate .btn{border-radius:999px;background:var(--ui);border-color:var(--ui)}
 .gmsg{color:var(--bad);font-size:13px;min-height:1em}
+.ro-note{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:8px 14px}
+.ro-note a,.ro-note b{color:var(--fg);font-weight:600}
+.linkbtn{font:inherit;font-size:13px;border:0;background:none;color:var(--ok);cursor:pointer;padding:0;text-decoration:underline}
+.ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
 :root{--ic-fg:#ffffff;--ic-fb:#2b2f37;--ic-chat:#4a505b;--ic-ads:#6a717d;--ic-map:#8a909b}
 @media (max-width:900px){
   .colhead{display:none}
@@ -218,7 +221,7 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
     <input class="search" id="q" type="search" placeholder="ค้นหาสาขา / แอค" aria-label="ค้นหาสาขา">
   </div>
 
-  <div class="ro-note">หน้านี้ดูได้อย่างเดียว อัปเดตทุกเช้า · ติ๊กหรือแก้ข้อมูลได้ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a></div>
+  <div class="ro-note" id="roNote"><b>ติ๊กเช็กลิสต์ได้ที่ <a href="https://docs.google.com/spreadsheets/d/1ZL5-cKgYNwKctWnKZtXp6SKXSZaZJ0Hs0fN_VDAY5UI/edit" target="_blank" rel="noopener">Google Sheet ↗</a></b> ติ๊กแล้วบันทึกทันที · หน้านี้ดึงจาก Sheet มาแสดงทุกเช้า</div>
   <div class="tabs" id="tabs" role="group" aria-label="ตัวกรอง"></div>
 
   <form class="gate" id="gate" hidden>
@@ -226,6 +229,11 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
     <label for="pw">รหัสผ่าน</label>
     <div class="grow"><input id="pw" type="password" autocomplete="current-password"><button type="submit" class="btn primary">เปิดดู</button></div>
     <span class="gmsg" id="gmsg" role="alert"></span>
+  </form>
+  <form class="gate" id="nameBox" hidden>
+    <b>ใส่ชื่อของคุณ</b>
+    <label for="myname">ชื่อนี้จะขึ้นใต้ช่องที่คุณติ๊ก ให้ทีมรู้ว่าใครติ๊ก</label>
+    <div class="grow"><input id="myname" maxlength="40" placeholder="เช่น ออฟ"><button type="submit" class="btn primary">บันทึกชื่อ</button></div>
   </form>
   <div class="status" id="status">กำลังโหลดรายการสาขา…</div>
   <div class="info" id="info" hidden></div>
@@ -440,6 +448,8 @@ function onWriteErr(e){
   if(c==='resource_exhausted')toast('กดเร็วเกินไป รอ 2–3 วินาทีแล้วกดใหม่');
   else if(c==='unavailable')toast('เชื่อมต่อสะดุด ลองกดใหม่อีกครั้ง');
   else if(c==='invalid_argument')toast('บันทึกไม่ได้ (บัญชีนี้อาจดูได้อย่างเดียว) · invalid_argument');
+  else if(c==='site_checks_only')toast('หน้านี้ติ๊กได้อย่างเดียว · แก้ข้อมูลอื่นที่หน้า Claude');
+  else if(c==='bad_key')toast('รหัสผ่านเปลี่ยนแล้ว รีเฟรชหน้าแล้วใส่รหัสใหม่');
   else toast('บันทึกไม่สำเร็จ'+(c?' · '+c:''));
   try{console.warn('db write failed',e);}catch(_){}
 }
@@ -518,6 +528,8 @@ async function resolveNames(){
   try{const ps=await user.profiles(ids);let ch=false;for(const id of ids){const n=(ps[id]&&ps[id].name)||'';if(n&&names[id]!==n){names[id]=n;ch=true;}}if(ch)renderList();}catch(e){}
 }
 
+const SYNC_URL="";
+let PW='',ME='';
 const b64=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
 async function decrypt(pw){
   const enc=await (await fetch('data.enc.json',{cache:'no-store'})).json();
@@ -526,19 +538,49 @@ async function decrypt(pw){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(enc.iv)},key,b64(enc.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
-async function unlock(pw,remember){
+function applyCheck(id,k,v){const r=rows.find(x=>x.id===id);if(!r)return;r.checks=Object.assign({},r.checks||{});r.checks[k]=v;if(v.by)names[v.by]=v.by;}
+async function pullChecks(){
+  if(!SYNC_URL)return false;
   try{
-    const d=await decrypt(pw);
-    rows=d.branches.sort((a,b)=>a.order-b.order);loaded=true;
-    $('#gate').hidden=true;
-    $('#asof').textContent='ข้อมูล ณ '+new Date(d.exportedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})+' · ';
-    if(remember){try{localStorage.setItem('bl-pw',pw);}catch(e){}}
-    render();return true;
+    const d=await (await fetch(SYNC_URL+'?key='+encodeURIComponent(PW),{cache:'no-store'})).json();
+    if(!d.ok)return false;
+    for(const c of d.checks){
+      const r=rows.find(x=>x.id===c.id);if(!r)continue;
+      const cur=(r.checks||{})[c.check];
+      if(!cur||!cur.at||(c.at&&c.at>cur.at))applyCheck(c.id,c.check,{done:c.done,at:c.at,by:c.by});
+    }
+    return true;
   }catch(e){return false;}
 }
+const sheetDb={collection:()=>({doc:id=>({update:async patch=>{
+  const keys=Object.keys(patch);
+  if(keys.length!==1||keys[0]!=='checks')throw{code:'site_checks_only'};
+  const k=Object.keys(patch.checks)[0],v=patch.checks[k];
+  const res=await fetch(SYNC_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:PW,id,check:k,done:!!v.done,by:ME})});
+  const d=await res.json();
+  if(!d.ok)throw{code:d.error||'unavailable'};
+  applyCheck(id,k,{done:!!v.done,at:d.at,by:ME});render();
+}})})};
+async function unlock(pw,remember){
+  let d;try{d=await decrypt(pw);}catch(e){return false;}
+  PW=pw;rows=d.branches.sort((a,b)=>a.order-b.order);loaded=true;
+  $('#gate').hidden=true;
+  $('#asof').textContent='ข้อมูล ณ '+new Date(d.exportedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})+' · ';
+  if(remember){try{localStorage.setItem('bl-pw',pw);}catch(e){}}
+  try{ME=localStorage.getItem('bl-name')||'';}catch(e){}
+  render();
+  if(await pullChecks()){canWrite=true;db=sheetDb;$('#roNote').innerHTML='ติ๊กแล้วบันทึกทันที ทุกคนเห็นตรงกัน · ติ๊กในชื่อ <b>'+esc(ME||'แอดมิน')+'</b> <button type="button" class="linkbtn" id="rename">เปลี่ยนชื่อ</button> · แก้วันเปิด แอค หรือหมายเหตุ ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a>';render();
+    if(!ME)askName();}
+  setInterval(async()=>{if(document.visibilityState==='visible'&&await pullChecks())render();},60000);
+  return true;
+}
+function askName(){$('#nameBox').hidden=false;$('#myname').value=ME;$('#myname').focus();}
+document.addEventListener('click',e=>{if(e.target.id==='rename')askName();});
 async function start(){
   canWrite=false;renderTabs();
   $('#status').textContent='ใส่รหัสผ่านเพื่อดูข้อมูล';
+  $('#nameBox').addEventListener('submit',e=>{e.preventDefault();ME=$('#myname').value.trim().slice(0,40)||'แอดมิน';try{localStorage.setItem('bl-name',ME);}catch(_){}$('#nameBox').hidden=true;
+    const b=document.querySelector('#roNote b');if(b)b.textContent=ME;});
   let saved=null;try{saved=localStorage.getItem('bl-pw');}catch(e){}
   if(saved&&await unlock(saved,false))return;
   $('#gate').hidden=false;$('#pw').focus();
