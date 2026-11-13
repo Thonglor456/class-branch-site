@@ -533,7 +533,7 @@ function goSheet(id,k){const r=rows.find(x=>x.id===id);const col={page:'F',admin
   const url=SHEET_URL+'#gid=0&range='+col+((r&&r.order)?r.order+1:2);
   toast('เปิด Google Sheet ตรงช่องนี้ให้แล้ว ติ๊กที่นั่นได้เลย');
   const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();}
-const SYNC_URL="";
+const SYNC_URL="https://script.google.com/macros/s/AKfycbybqgFIsko7WomgfBty3q2Z1aeGWBBaFMRga-u9eGe5JyTI7uZ6l050K34JYW-wjIE/exec";
 let PW='',ME='';
 const b64=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
 async function decrypt(pw){
@@ -552,7 +552,7 @@ async function pullChecks(){
     for(const c of d.checks){
       const r=rows.find(x=>x.id===c.id);if(!r)continue;
       const cur=(r.checks||{})[c.check];
-      if(!cur||!cur.at||(c.at&&c.at>cur.at))applyCheck(c.id,c.check,{done:c.done,at:c.at,by:c.by});
+      if(!cur||!!cur.done!==!!c.done)applyCheck(c.id,c.check,{done:!!c.done,at:cur&&cur.at||'',by:cur&&cur.by||''});
     }
     return true;
   }catch(e){return false;}
