@@ -171,6 +171,7 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
 .ads .src{font-size:11px;color:var(--muted);padding:5px 10px;background:var(--off);border-top:1px solid var(--line)}
 .ads .up{color:var(--bad)} .ads .dn{color:var(--ok)}
 .chip.live{background:var(--ok-soft);color:var(--ok)}
+.ro-note{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:8px 14px}.ro-note a{color:var(--fg);font-weight:600}.ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
 .gate{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:8px;max-width:420px;box-shadow:var(--shadow)}
 .gate label{font-size:13px;color:var(--muted)}
 .gate .grow{display:flex;gap:8px}
@@ -217,6 +218,7 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
     <input class="search" id="q" type="search" placeholder="ค้นหาสาขา / แอค" aria-label="ค้นหาสาขา">
   </div>
 
+  <div class="ro-note">หน้านี้ดูได้อย่างเดียว อัปเดตทุกเช้า · ติ๊กหรือแก้ข้อมูลได้ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a></div>
   <div class="tabs" id="tabs" role="group" aria-label="ตัวกรอง"></div>
 
   <form class="gate" id="gate" hidden>
@@ -434,16 +436,22 @@ $('#q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();rende
 
 function toast(t){const el=document.createElement('div');el.className='toast';el.textContent=t;document.body.appendChild(el);setTimeout(()=>el.remove(),2200);}
 function onWriteErr(e){
-  if(e&&e.code==='invalid_argument'){canWrite=false;render();toast('บัญชีนี้ดูได้อย่างเดียว แก้ไขไม่ได้');}
-  else if(e&&e.code==='unavailable'){toast('บันทึกไม่สำเร็จ ลองอีกครั้ง');}
-  else toast('บันทึกไม่สำเร็จ');
+  const c=e&&e.code;
+  if(c==='resource_exhausted')toast('กดเร็วเกินไป รอ 2–3 วินาทีแล้วกดใหม่');
+  else if(c==='unavailable')toast('เชื่อมต่อสะดุด ลองกดใหม่อีกครั้ง');
+  else if(c==='invalid_argument')toast('บันทึกไม่ได้ (บัญชีนี้อาจดูได้อย่างเดียว) · invalid_argument');
+  else toast('บันทึกไม่สำเร็จ'+(c?' · '+c:''));
+  try{console.warn('db write failed',e);}catch(_){}
 }
 async function write(id,patch){
-  if(busy.has(id)){toast('กำลังบันทึกอยู่ รอสักครู่');return false;}
+  if(busy.has(id)){toast('กำลังบันทึกแถวนี้อยู่ รอสักครู่');return false;}
   busy.add(id);
+  const t0=setTimeout(()=>{if(busy.has(id)){busy.delete(id);toast('บันทึกช้าผิดปกติ ลองกดใหม่');}},15000);
   try{await db.collection('branches').doc(id).update(patch);return true;}
-  catch(e){onWriteErr(e);return false;}
-  finally{busy.delete(id);}
+  catch(e){
+    if(e&&e.code==='unavailable'){await new Promise(r=>setTimeout(r,800+Math.random()*700));try{await db.collection('branches').doc(id).update(patch);return true;}catch(e2){onWriteErr(e2);return false;}}
+    onWriteErr(e);return false;}
+  finally{clearTimeout(t0);busy.delete(id);}
 }
 
 document.addEventListener('click',async ev=>{
