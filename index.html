@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#16181d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="เปิดสาขา">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>เช็กลิสต์เปิดสาขาใหม่</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -182,6 +190,16 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
 .linkbtn{font:inherit;font-size:13px;border:0;background:none;color:var(--ok);cursor:pointer;padding:0;text-decoration:underline}
 .ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
 .edit{display:none!important}
+.savepill{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;padding:2px 10px;border-radius:999px;margin-right:6px;background:var(--off);color:var(--muted)}
+.savepill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.savepill.ok{background:var(--ok-soft);color:var(--ok)}.savepill.busy{background:var(--warn-soft);color:var(--warn)}.savepill.err{background:var(--bad-soft);color:var(--bad)}
+.ck{transition:transform .08s ease,background .15s ease,border-color .15s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;position:relative}
+.ck:active{transform:scale(.94)}
+.ck.saving .box{animation:ckpulse .8s ease-in-out infinite}
+.ck.saving::after{content:"กำลังบันทึก";position:absolute;bottom:2px;left:0;right:0;font-size:9.5px;opacity:.75}
+.ck.justsaved::after{content:"✓ บันทึกแล้ว";position:absolute;bottom:2px;left:0;right:0;font-size:9.5px;color:var(--ok);font-weight:600}
+@keyframes ckpulse{50%{opacity:.35;transform:scale(.85)}}
+@media (prefers-reduced-motion:reduce){.ck.saving .box{animation:none}}
 :root{--ic-fg:#ffffff;--ic-fb:#2b2f37;--ic-chat:#4a505b;--ic-ads:#6a717d;--ic-map:#8a909b}
 @media (max-width:900px){
   .colhead{display:none}
@@ -551,6 +569,7 @@ async function pullChecks(){
     const d=await (await fetch(SYNC_URL+'?key='+encodeURIComponent(PW),{cache:'no-store'})).json();
     if(!d.ok)return false;
     for(const c of d.checks){
+      if(PENDING.has(c.id+':'+c.check))continue;
       const r=rows.find(x=>x.id===c.id);if(!r)continue;
       const cur=(r.checks||{})[c.check];
       if(!cur||!!cur.done!==!!c.done)applyCheck(c.id,c.check,{done:!!c.done,at:cur&&cur.at||'',by:cur&&cur.by||''});
@@ -567,6 +586,46 @@ const sheetDb={collection:()=>({doc:id=>({update:async patch=>{
   if(!d.ok)throw{code:d.error||'unavailable'};
   applyCheck(id,k,{done:!!v.done,at:d.at,by:ME});render();
 }})})};
+let SYNC_ON=false;const PENDING=new Map(),SAVED=new Set(),CHAIN={};
+function hhmm(){return new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});}
+function setSaveState(txt,cls){const el=document.getElementById('saveState');if(!el)return;el.textContent=txt;el.className='savepill'+(cls?' '+cls:'');}
+async function postTick(id,k,done){
+  for(let i=0;i<3;i++){
+    try{
+      const res=await fetch(SYNC_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:PW,id,check:k,done,by:ME})});
+      const d=await res.json();
+      if(d.ok)return d;
+      if(d.error==='bad_key')throw{code:'bad_key'};
+    }catch(e){if(e&&e.code==='bad_key')throw e;}
+    await new Promise(r=>setTimeout(r,700*(i+1)));
+  }
+  throw{code:'unavailable'};
+}
+function decorate(){
+  document.querySelectorAll('.ck[data-id]').forEach(b=>{const key=b.dataset.id+':'+b.dataset.k;
+    b.classList.toggle('saving',PENDING.has(key));b.classList.toggle('justsaved',SAVED.has(key));});
+}
+const _render=render;render=function(){_render();decorate();};
+document.addEventListener('click',ev=>{
+  const t=ev.target.closest&&ev.target.closest('.ck[data-id]');if(!t||!SYNC_ON)return;
+  ev.stopImmediatePropagation();ev.preventDefault();
+  const id=t.dataset.id,k=t.dataset.k,key=id+':'+k,r=rows.find(x=>x.id===id);if(!r)return;
+  const prev=Object.assign({done:false},(r.checks||{})[k]||{}),next=!prev.done;
+  try{navigator.vibrate&&navigator.vibrate(12);}catch(_){}
+  applyCheck(id,k,{done:next,at:new Date().toISOString(),by:ME});
+  PENDING.set(key,(PENDING.get(key)||0)+1);SAVED.delete(key);setSaveState('กำลังบันทึก…','busy');render();
+  CHAIN[key]=(CHAIN[key]||Promise.resolve()).then(()=>postTick(id,k,next)).then(()=>{
+    const n=PENDING.get(key)-1;if(n>0)PENDING.set(key,n);else PENDING.delete(key);
+    if(!PENDING.size)setSaveState('บันทึกแล้ว · '+hhmm(),'ok');
+    SAVED.add(key);render();setTimeout(()=>{SAVED.delete(key);render();},1400);
+  },e=>{
+    const n=PENDING.get(key)-1;if(n>0)PENDING.set(key,n);else PENDING.delete(key);
+    applyCheck(id,k,prev);render();
+    setSaveState(e&&e.code==='bad_key'?'รหัสผ่านเปลี่ยน รีเฟรชหน้า':'บันทึกไม่สำเร็จ แตะใหม่อีกครั้ง','err');
+    toast(e&&e.code==='bad_key'?'รหัสผ่านเปลี่ยนแล้ว รีเฟรชหน้าแล้วใส่รหัสใหม่':'บันทึกไม่สำเร็จ (เน็ตสะดุด) ช่องนี้กลับเป็นค่าเดิมแล้ว แตะใหม่ได้เลย');
+  });
+},true);
+window.addEventListener('beforeunload',e=>{if(PENDING.size){e.preventDefault();e.returnValue='';}});
 async function unlock(pw,remember){
   let d;try{d=await decrypt(pw);}catch(e){return false;}
   PW=pw;rows=d.branches.sort((a,b)=>a.order-b.order);loaded=true;
@@ -575,7 +634,7 @@ async function unlock(pw,remember){
   if(remember){try{localStorage.setItem('bl-pw',pw);}catch(e){}}
   try{ME=localStorage.getItem('bl-name')||'';}catch(e){}
   render();
-  if(await pullChecks()){canWrite=true;db=sheetDb;$('#roNote').innerHTML='ติ๊กแล้วบันทึกทันที ทุกคนเห็นตรงกัน · ติ๊กในชื่อ <b>'+esc(ME||'แอดมิน')+'</b> <button type="button" class="linkbtn" id="rename">เปลี่ยนชื่อ</button> · แก้วันเปิด แอค หรือหมายเหตุ ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a>';render();
+  if(await pullChecks()){canWrite=true;db=sheetDb;SYNC_ON=true;$('#roNote').innerHTML='<span id="saveState" class="savepill ok">บันทึกอัตโนมัติ</span> แตะช่องเพื่อติ๊ก บันทึกทันที ทุกคนเห็นตรงกัน · ติ๊กในชื่อ <b>'+esc(ME||'แอดมิน')+'</b> <button type="button" class="linkbtn" id="rename">เปลี่ยนชื่อ</button> · แก้วันเปิด แอค หรือหมายเหตุ ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a>';render();
     if(!ME)askName();}
   setInterval(async()=>{if(document.visibilityState==='visible'&&await pullChecks())render();},60000);
   return true;
