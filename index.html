@@ -189,7 +189,6 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
 .ro-note a,.ro-note b{color:var(--fg);font-weight:600}
 .linkbtn{font:inherit;font-size:13px;border:0;background:none;color:var(--ok);cursor:pointer;padding:0;text-decoration:underline}
 .ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
-.edit{display:none!important}
 .vbr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
 .installbtn{font:inherit;font-size:14px;font-weight:600;padding:9px 16px;border-radius:999px;border:0;background:var(--ok);color:var(--surface);cursor:pointer;box-shadow:var(--shadow)}
 #iosHelp span{font-size:14px;line-height:1.6}
@@ -572,28 +571,42 @@ async function decrypt(pw){
   return JSON.parse(new TextDecoder().decode(pt));
 }
 function applyCheck(id,k,v){const r=rows.find(x=>x.id===id);if(!r)return;r.checks=Object.assign({},r.checks||{});r.checks[k]=v;if(v.by)names[v.by]=v.by;}
+const SHEET_FIELDS=['date','origDate','schedule','adAccount','pageUrl','note','owner','mapUrl'];
+function mergeRow(b){
+  const r=rows.find(x=>x.id===b.id);if(!r)return;
+  SHEET_FIELDS.forEach(f=>{if(!EDITING.has(b.id))r[f]=b[f]||(f==='schedule'?'ontime':'');});
+  if(!r.date)r.date=null;if(!r.origDate)r.origDate=null;
+  for(const k in (b.checks||{})){
+    if(PENDING.has(b.id+':'+k))continue;
+    const cur=(r.checks||{})[k];
+    if(!cur||!!cur.done!==!!b.checks[k])applyCheck(b.id,k,{done:!!b.checks[k],at:b.updatedAt||'',by:b.updatedBy||''});
+  }
+  if(b.updatedBy){r.lastBy=b.updatedBy;r.lastAt=b.updatedAt;}
+}
 async function pullChecks(){
   if(!SYNC_URL)return false;
   try{
     const d=await (await fetch(SYNC_URL+'?key='+encodeURIComponent(PW),{cache:'no-store'})).json();
     if(!d.ok)return false;
-    for(const c of d.checks){
-      if(PENDING.has(c.id+':'+c.check))continue;
-      const r=rows.find(x=>x.id===c.id);if(!r)continue;
-      const cur=(r.checks||{})[c.check];
-      if(!cur||!!cur.done!==!!c.done)applyCheck(c.id,c.check,{done:!!c.done,at:cur&&cur.at||'',by:cur&&cur.by||''});
-    }
+    (d.branches||[]).forEach(mergeRow);
     return true;
   }catch(e){return false;}
 }
+const EDITING=new Set();
 const sheetDb={collection:()=>({doc:id=>({update:async patch=>{
-  const keys=Object.keys(patch);
-  if(keys.length!==1||keys[0]!=='checks')throw{code:'site_checks_only'};
-  const k=Object.keys(patch.checks)[0],v=patch.checks[k];
-  const res=await fetch(SYNC_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:PW,id,check:k,done:!!v.done,by:ME})});
-  const d=await res.json();
-  if(!d.ok)throw{code:d.error||'unavailable'};
-  applyCheck(id,k,{done:!!v.done,at:d.at,by:ME});render();
+  const set={};
+  SHEET_FIELDS.forEach(f=>{if(Object.prototype.hasOwnProperty.call(patch,f))set[f]=patch[f]==null?'':patch[f];});
+  if(!set.pageUrl&&patch.pageId)set.pageUrl='https://www.facebook.com/'+patch.pageId;
+  const checks={};for(const k in (patch.checks||{}))checks[k]=!!patch.checks[k].done;
+  EDITING.add(id);
+  try{
+    const res=await fetch(SYNC_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:PW,id,set,checks,by:ME})});
+    const d=await res.json();
+    if(!d.ok)throw{code:d.error||'unavailable'};
+    const r=rows.find(x=>x.id===id);
+    if(r){['pageName','pageId','pageGuess','accountGuess'].forEach(f=>{if(Object.prototype.hasOwnProperty.call(patch,f))r[f]=patch[f];});}
+    EDITING.delete(id);mergeRow(d.branch);render();
+  }finally{EDITING.delete(id);}
 }})})};
 (function(){
   let dp=null;const btn=document.getElementById('installBtn');
@@ -658,7 +671,7 @@ async function unlock(pw,remember){
   if(remember){try{localStorage.setItem('bl-pw',pw);}catch(e){}}
   try{ME=localStorage.getItem('bl-name')||'';}catch(e){}
   render();
-  if(await pullChecks()){canWrite=true;db=sheetDb;SYNC_ON=true;$('#roNote').innerHTML='<span id="saveState" class="savepill ok">บันทึกอัตโนมัติ</span> แตะช่องเพื่อติ๊ก บันทึกทันที ทุกคนเห็นตรงกัน · ติ๊กในชื่อ <b>'+esc(ME||'แอดมิน')+'</b> <button type="button" class="linkbtn" id="rename">เปลี่ยนชื่อ</button> · แก้วันเปิด แอค หรือหมายเหตุ ที่ <a href="https://claude.ai/artifact/9hGgKBSfcTPLK4DgqxHyWy#checklist" target="_blank" rel="noopener">หน้า Claude ↗</a>';render();
+  if(await pullChecks()){canWrite=true;db=sheetDb;SYNC_ON=true;$('#roNote').innerHTML='<span id="saveState" class="savepill ok">บันทึกอัตโนมัติ</span> แตะช่องเพื่อติ๊ก · กด ✎ แก้วันเปิด สถานะ แอค ลิงก์ หมายเหตุ · บันทึกทันที ทุกคนเห็นตรงกัน · ติ๊กในชื่อ <b>'+esc(ME||'แอดมิน')+'</b> <button type="button" class="linkbtn" id="rename">เปลี่ยนชื่อ</button>';render();
     if(!ME)askName();}
   setInterval(async()=>{if(document.visibilityState==='visible'&&await pullChecks())render();},60000);
   return true;
