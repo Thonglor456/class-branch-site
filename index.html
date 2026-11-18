@@ -190,6 +190,9 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
 .linkbtn{font:inherit;font-size:13px;border:0;background:none;color:var(--ok);cursor:pointer;padding:0;text-decoration:underline}
 .ck:disabled{cursor:not-allowed}.ck:disabled:hover{border-color:var(--line)}
 .edit{display:none!important}
+.vbr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.installbtn{font:inherit;font-size:14px;font-weight:600;padding:9px 16px;border-radius:999px;border:0;background:var(--ok);color:var(--surface);cursor:pointer;box-shadow:var(--shadow)}
+#iosHelp span{font-size:14px;line-height:1.6}
 .savepill{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;padding:2px 10px;border-radius:999px;margin-right:6px;background:var(--off);color:var(--muted)}
 .savepill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
 .savepill.ok{background:var(--ok-soft);color:var(--ok)}.savepill.busy{background:var(--warn-soft);color:var(--warn)}.savepill.err{background:var(--bad-soft);color:var(--bad)}
@@ -237,7 +240,13 @@ a.lk:hover{border-color:var(--ui);color:var(--ui)}
       <button type="button" data-view="info" aria-pressed="true">ข้อมูลสาขา &amp; ลิงก์</button>
       <button type="button" data-view="checklist" aria-pressed="false">เช็กลิสต์</button>
     </div>
-    <input class="search" id="q" type="search" placeholder="ค้นหาสาขา / แอค" aria-label="ค้นหาสาขา">
+    <div class="vbr"><button type="button" class="installbtn" id="installBtn" hidden>ติดตั้งเป็นแอป</button><input class="search" id="q" type="search" placeholder="ค้นหาสาขา / แอค" aria-label="ค้นหาสาขา"></div>
+  <div class="gate" id="iosHelp" hidden><b>ติดตั้งบน iPhone / iPad</b>
+    <span>1. กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศรขึ้น) แถบล่างของ Safari</span>
+    <span>2. เลื่อนลงแล้วเลือก <b>เพิ่มไปยังหน้าจอโฮม</b></span>
+    <span>3. กด <b>เพิ่ม</b> ไอคอน "เปิดสาขา" จะอยู่บนหน้าจอเหมือนแอป</span>
+    <span class="gmsg" style="color:var(--muted)">ต้องเปิดใน Safari เท่านั้น ถ้าเปิดจาก LINE ให้กด ⋯ แล้วเลือก "เปิดใน Safari" ก่อน</span>
+    <div class="grow"><button type="button" class="btn primary" id="iosClose">เข้าใจแล้ว</button></div></div>
   </div>
 
   <div class="ro-note" id="roNote"><b>ติ๊กเช็กลิสต์ได้ที่ <a href="https://docs.google.com/spreadsheets/d/1ZL5-cKgYNwKctWnKZtXp6SKXSZaZJ0Hs0fN_VDAY5UI/edit" target="_blank" rel="noopener">Google Sheet ↗</a></b> ติ๊กแล้วบันทึกทันที · หน้านี้ดึงจาก Sheet มาแสดงทุกเช้า</div>
@@ -586,6 +595,21 @@ const sheetDb={collection:()=>({doc:id=>({update:async patch=>{
   if(!d.ok)throw{code:d.error||'unavailable'};
   applyCheck(id,k,{done:!!v.done,at:d.at,by:ME});render();
 }})})};
+(function(){
+  let dp=null;const btn=document.getElementById('installBtn');
+  const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if(standalone)return;
+  window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;btn.hidden=false;});
+  window.addEventListener('appinstalled',()=>{btn.hidden=true;toast('ติดตั้งแล้ว เปิดจากไอคอน "เปิดสาขา" บนหน้าจอได้เลย');});
+  if(ios)btn.hidden=false;
+  btn.addEventListener('click',async()=>{
+    if(dp){dp.prompt();try{await dp.userChoice;}catch(_){}dp=null;btn.hidden=true;return;}
+    document.getElementById('iosHelp').hidden=false;
+  });
+  document.getElementById('iosClose').addEventListener('click',()=>{document.getElementById('iosHelp').hidden=true;});
+})();
 let SYNC_ON=false;const PENDING=new Map(),SAVED=new Set(),CHAIN={};
 function hhmm(){return new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});}
 function setSaveState(txt,cls){const el=document.getElementById('saveState');if(!el)return;el.textContent=txt;el.className='savepill'+(cls?' '+cls:'');}
